@@ -1,148 +1,116 @@
-let handPose;
-let video;
-let hands = [];
-let objects = [];
-let score = 0;
-let timer = 30;
-let gameState = "START"; // START, PLAYING, END
-
-function preload() {
-  // 載入手勢辨識模型
-  handPose = ml5.handPose();
-}
+// --- 全域變數定義 ---
+let score = 0;          // 遊戲得分
+let objects = [];       // 儲存掉落物的陣列
+const netSize = 50;     // 保護網（滑鼠控制範圍）的直徑
 
 function setup() {
+  // 建立 640x480 的畫布
   createCanvas(640, 480);
-  video = createCapture(VIDEO);
-  video.size(640, 480);
-  video.hide();
-  // 開始偵測手勢
-  handPose.detectStart(video, results => {
-    hands = results;
-  });
 }
 
 function draw() {
-  // 鏡像翻轉畫布，讓操作更直覺
-  translate(width, 0);
-  scale(-1, 1);
-  image(video, 0, 0, width, height);
-  
-  // 恢復正常坐標系來繪製文字與物件
-  push();
-  scale(-1, 1);
-  translate(-width, 0);
+  background(220); // 設定背景顏色為淺灰色
 
-  if (gameState === "START") {
-    drawOverlay("手勢切水果遊戲", "請舉起手準備，點擊畫面開始");
-  } else if (gameState === "PLAYING") {
-    playGame();
-  } else if (gameState === "END") {
-    drawOverlay("遊戲結束", `最終得分: ${score}\n點擊畫面重新開始`);
-  }
-  pop();
-}
-
-function playGame() {
-  // 倒數計時
-  if (frameCount % 60 === 0 && timer > 0) {
-    timer--;
-  }
-  if (timer <= 0) {
-    gameState = "END";
+  // 1. 產生掉落物邏輯
+  // frameCount 是 p5.js 內建變數，記錄從開始到現在跑了多少幀
+  // 每 60 幀（大約 1 秒）產生一個新物件
+  if (frameCount % 60 === 0) {
+    // 隨機決定類型：0 為候鳥，1 為海洋垃圾
+    let type = random([0, 1]);
+    objects.push(new FallingObject(type));
   }
 
-  // 隨機產生水果或炸彈
-  if (frameCount % 40 === 0) {
-    let isBomb = random(1) < 0.2; // 20% 機率是炸彈
-    objects.push(new GameObject(isBomb));
-  }
-
-  // 更新與繪製物件
+  // 2. 更新與顯示掉落物（使用倒序迴圈以安全刪除陣列元素）
   for (let i = objects.length - 1; i >= 0; i--) {
-    objects[i].update();
-    objects[i].display();
+    let obj = objects[i];
+    obj.move();
+    obj.display();
 
-    // 檢查手勢碰撞
-    if (hands.length > 0) {
-      let finger = hands[0].index_finger_tip; // 使用食指指尖
-      // 因為鏡像關係，x 座標需要轉換
-      let fingerX = width - finger.x;
-      let fingerY = finger.y;
-
-      // 繪製指尖位置（刀鋒）
-      fill(255, 255, 0);
-      circle(fingerX, fingerY, 15);
-
-      if (objects[i].checkSlice(fingerX, fingerY)) {
-        if (objects[i].isBomb) {
-          score = max(0, score - 1);
-        } else {
-          score++;
-        }
-        objects.splice(i, 1);
-        continue;
+    // 3. 碰撞偵測
+    // 使用 dist() 判斷滑鼠（保護網中心）與掉落物的距離
+    if (obj.checkCollision(mouseX, mouseY, netSize)) {
+      // 接到物件時根據類型增減分數
+      if (obj.type === 0) {
+        score += 10; // 接到候鳥加 10 分
+      } else {
+        score -= 5;  // 接到垃圾扣 5 分
       }
-    }
-
-    // 移除掉出畫面外的物件
-    if (objects[i] && objects[i].y > height) {
+      // 移除該物件
+      objects.splice(i, 1);
+    } 
+    // 4. 超出畫面處理
+    else if (obj.y > height + obj.size) {
+      // 如果物件掉出底部，直接移除
       objects.splice(i, 1);
     }
   }
 
-  // 顯示分數與時間
-  fill(255);
+  // 5. 繪製保護網（滑鼠位置）
+  drawNet(mouseX, mouseY);
+
+  // 6. 顯示得分訊息
+  displayScore();
+}
+
+/**
+ * 繪製保護網的視覺化函數
+ */
+function drawNet(x, y) {
+  noFill();
+  stroke(50);
+  strokeWeight(2);
+  // 繪製圓形保護網
+  ellipse(x, y, netSize, netSize);
+  // 繪製簡單的瞄準線
+  line(x - 10, y, x + 10, y);
+  line(x, y - 10, x, y + 10);
+}
+
+/**
+ * 顯示得分顯示在畫面上
+ */
+function displayScore() {
+  fill(0);
+  noStroke();
   textSize(24);
-  textAlign(LEFT);
-  text(`得分: ${score}`, 20, 40);
-  text(`時間: ${timer}s`, 20, 70);
+  textAlign(LEFT, TOP);
+  text(`目前得分: ${score}`, 20, 20);
 }
 
-function drawOverlay(title, sub) {
-  fill(0, 150);
-  rect(0, 0, width, height);
-  fill(255);
-  textAlign(CENTER);
-  textSize(48);
-  text(title, width / 2, height / 2 - 20);
-  textSize(20);
-  text(sub, width / 2, height / 2 + 40);
-}
-
-function mousePressed() {
-  if (gameState !== "PLAYING") {
-    score = 0;
-    timer = 30;
-    objects = [];
-    gameState = "PLAYING";
-  }
-}
-
-class GameObject {
-  constructor(isBomb) {
-    this.isBomb = isBomb;
-    this.x = random(50, width - 50);
-    this.y = height;
-    this.size = 50;
-    this.vy = random(-12, -18); // 向上噴射的速度
-    this.vx = random(-2, 2);
-    this.gravity = 0.4;
+// --- 物件導向設計：FallingObject 類別 ---
+class FallingObject {
+  constructor(type) {
+    this.type = type; // 0: 候鳥, 1: 海洋垃圾
+    this.size = 35;   // 物件大小
+    this.x = random(this.size, width - this.size); // 隨機 X 座標
+    this.y = -this.size; // 從畫面上方外部開始掉落
+    this.speed = random(2, 6); // 隨機掉落速度
   }
 
-  update() {
-    this.y += this.vy;
-    this.x += this.vx;
-    this.vy += this.gravity;
+  // 物件移動邏輯
+  move() {
+    this.y += this.speed;
   }
 
+  // 物件顯示邏輯
   display() {
-    fill(this.isBomb ? color(255, 0, 0) : color(0, 255, 100));
-    ellipse(this.x, this.y, this.size);
+    noStroke();
+    if (this.type === 0) {
+      fill(46, 204, 113); // 綠色：候鳥
+      ellipse(this.x, this.y, this.size);
+      fill(255);
+      textAlign(CENTER, CENTER);
+      textSize(14);
+      text("鳥", this.x, this.y);
+    } else {
+      fill(231, 76, 60);  // 紅色：海洋垃圾
+      ellipse(this.x, this.y, this.size);
+    }
   }
 
-  checkSlice(fx, fy) {
-    let d = dist(fx, fy, this.x, this.y);
-    return d < this.size / 2;
+  // 碰撞偵測（判斷是否進入保護網）
+  checkCollision(netX, netY, netD) {
+    let d = dist(this.x, this.y, netX, netY);
+    return d < (this.size / 2 + netD / 2);
   }
 }
