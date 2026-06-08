@@ -28,9 +28,13 @@ class Fruit {
   }
 
   display() {
-    if (!this.isCut) {
-      fill(this.color);
-      noStroke();
+    fill(this.color);
+    noStroke();
+    // 如果被切開，畫兩個半圓（視覺效果）
+    if (this.isCut) {
+      arc(this.x - 10, this.y, this.size, this.size, PI, TWO_PI);
+      arc(this.x + 10, this.y + 10, this.size, this.size, 0, PI);
+    } else {
       ellipse(this.x, this.y, this.size);
     }
   }
@@ -38,7 +42,7 @@ class Fruit {
 
 function preload() {
   // 載入手勢辨識模型
-  handPose = ml5.handPose();
+  handPose = ml5.handpose();
 }
 
 function setup() {
@@ -50,14 +54,12 @@ function setup() {
   video.size(windowWidth, windowHeight);
   video.hide(); // 隱藏預設的 HTML 影像元件
   
-  // 開始偵測手勢
-  handPose.detectStart(video, gotHands);
+  // 監聽手勢偵測結果
+  handPose.on("predict", results => {
+    hands = results;
+  });
   
   startTime = millis();
-}
-
-function gotHands(results) {
-  hands = results;
 }
 
 function draw() {
@@ -82,7 +84,7 @@ function draw() {
   pop();
 
   // 2. 產生水果
-  if (frameCount % 30 === 0) {
+  if (frameCount % 40 === 0) {
     fruits.push(new Fruit());
   }
 
@@ -91,13 +93,20 @@ function draw() {
     fruits[i].update();
     fruits[i].display();
 
-    // 偵測食指指尖 (index_finger_tip) 位置
+    // 偵測食指位置
     if (hands.length > 0) {
       for (let hand of hands) {
-        let indexTip = hand.index_finger_tip;
+        // indexFinger[3] 通常是食指指尖
+        let indexTip = hand.landmarks[8]; 
+        
         // 將偵測到的座標映射到畫布大小，並處理鏡像翻轉
-        let fingerX = map(indexTip.x, 0, video.width, width, 0);
-        let fingerY = map(indexTip.y, 0, video.height, 0, height);
+        let fingerX = map(indexTip[0], 0, video.width, width, 0);
+        let fingerY = map(indexTip[1], 0, video.height, 0, height);
+
+        // 畫出準星
+        fill(255, 0, 0);
+        noStroke();
+        ellipse(fingerX, fingerY, 20);
 
         // 碰撞偵測：食指與水果的距離
         let d = dist(fingerX, fingerY, fruits[i].x, fruits[i].y);
@@ -108,14 +117,22 @@ function draw() {
       }
     }
 
-    // 移除掉出畫面或被切碎的水果
-    if (fruits[i].y > height + 100 || fruits[i].isCut) {
+    // 移除掉出畫面或已經切開一段時間的水果
+    if (fruits[i].y > height + 100) {
       fruits.splice(i, 1);
     }
   }
 
   // 4. 顯示 UI
-  fill(255);
+  drawUI(elapsed);
+}
+
+function drawUI(elapsed) {
+  fill(0, 150);
+  noStroke();
+  rect(20, 20, 200, 100, 10);
+  
+  fill(255); 
   textSize(32);
   textAlign(LEFT, TOP);
   text(`得分: ${score}`, 30, 30);
@@ -124,15 +141,13 @@ function draw() {
 
 function displayGameOver() {
   textAlign(CENTER, CENTER);
-  fill(255);
+  fill(255); 
   textSize(64);
   text("遊戲結束", width / 2, height / 2 - 20);
   textSize(32);
   text(`您的最終得分: ${score}`, width / 2, height / 2 + 50);
-  text("重新整理網頁以再次挑戰", width / 2, height / 2 + 100);
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  video.size(windowWidth, windowHeight);
 }
